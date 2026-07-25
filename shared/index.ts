@@ -7,6 +7,7 @@ import { z } from "zod";
 
 export * from "./schema.js";
 export * from "./crypto.js";
+export * from "./constants.js";
 
 /** CLI exit codes (specs §7). stdout stays data-only; these signal outcome. */
 export const Exit = {

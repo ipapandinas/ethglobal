@@ -8,15 +8,19 @@
  * 402s, which is the correct fail-closed default.
  */
 import type { NextFunction, Request, Response } from "express";
-import { toCents } from "../../shared/index.js";
+import { DEFAULT_PRICE, toCents } from "../../shared/index.js";
 import { config, isSelfBroker } from "./config.js";
 
-/** The 402 quote. One recipient: broker in marketplace mode, seller in self-broker. */
-const accepts = (resource: string, seller: string) => [
+/**
+ * The 402 quote. One recipient: broker in marketplace mode, seller in self-broker.
+ * TODO(api): quote the SIGNAL's committed price (read it from the store by seq),
+ * not a broker-wide default — the seller sets price per signal at publish time.
+ */
+const accepts = (resource: string, seller: string, price = DEFAULT_PRICE) => [
   {
     scheme: "exact",
     network: `hedera:${config.network}`,
-    maxAmountRequired: String(toCents(config.price)), // TODO: atomic units after spike S1
+    maxAmountRequired: String(toCents(price)), // TODO: atomic units after spike S1
     resource,
     payTo: isSelfBroker ? seller : config.brokerAccount,
   },
