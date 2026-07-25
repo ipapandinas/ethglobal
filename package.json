@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "smoke": "tsx scripts/smoke.ts",
+    "associate": "tsx scripts/associate.ts",
     "api": "tsx apps/api/server.ts",
     "cli": "tsx apps/cli/index.ts",
     "typecheck": "tsc --noEmit"
