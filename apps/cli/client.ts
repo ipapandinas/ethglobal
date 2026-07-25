@@ -3,18 +3,13 @@
  * read from Mirror Node (seq is the id, payer_account_id is the attested seller).
  */
 import "dotenv/config";
-import { Exit, KeyResponse, PublishResponse, Signal } from "../../shared/index.js";
+import { MIRROR_NODE, NETWORK, Signal, TOPIC_ID } from "../../shared/index.js";
 import { CliError } from "./errors.js";
 import { payAndRetry } from "./x402.js";
 
-const API = process.env.NOWCAST_API_URL ?? "http://localhost:3000";
-const MIRROR = process.env.MIRROR_NODE_URL ?? "https://testnet.mirrornode.hedera.com";
-
-const topic = () => {
-  const t = process.env.NOWCAST_TOPIC_ID;
-  if (!t) throw new CliError(Exit.usage, "USAGE", "set NOWCAST_TOPIC_ID");
-  return t;
-};
+const API = process.env.NOWCAST_API_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
+const MIRROR = MIRROR_NODE[process.env.HEDERA_NETWORK ?? NETWORK];
+const TOPIC = TOPIC_ID;
 
 export type SignalRecord = Signal & { seq: number; consensusAt: string; payer: string };
 

@@ -1,15 +1,13 @@
 /**
- * Broker HTTP server (specs §6). Three routes: health (public), signals (auth'd),
- * reveal (paid). Run: `tsx apps/api/server.ts`.
+ * Broker HTTP server (specs §6). Two routes: signals (auth'd), reveal (paid).
+ * Run: `tsx apps/api/server.ts`.
  */
 import express from "express";
-import { KeyResponse, PublishRequest, err } from "../../shared/index.js";
+import { PublishRequest, err } from "../../shared/index.js";
 import { config, isSelfBroker } from "./config.js";
+import * as db from "./db.js";
 import { publishSignal } from "./hcs.js";
 import { requirePayment } from "./paywall.js";
-
-/** Key vault (specs §9): per-message key by seq. In-memory for the demo. */
-const vault = new Map<number, KeyResponse>();
 
 const app = express();
 app.use(express.json());
@@ -20,16 +18,17 @@ app.post("/signals", async (req, res) => {
   }
   const input = PublishRequest.parse(req.body);
   const { seq, key } = await publishSignal(input);
-  vault.set(seq, key);
+  await db.put(seq, key);
   res.status(201).json({ seq, key: key.key });
 });
 
-app.get("/reveal", requirePayment, (req, res) => {
-  const key = vault.get(Number(req.query.seq));
+app.get("/reveal", requirePayment, async (req, res) => {
+  const key = await db.get(Number(req.query.seq));
   if (!key) return res.status(404).json(err("NOT_FOUND", `no signal at seq ${req.query.seq}`));
   res.json(key);
 });
 
+await db.init();
 app.listen(config.port, () =>
   console.error(`nowcast broker :${config.port} — topic ${config.topicId}, ${isSelfBroker ? "self-broker" : `feeBps ${config.feeBps}`}`),
 );
