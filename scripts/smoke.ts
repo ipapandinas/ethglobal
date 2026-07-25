@@ -6,6 +6,8 @@ import {
   Hbar,
   PrivateKey,
   Status,
+  TopicCreateTransaction,
+  TopicMessageSubmitTransaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
 
@@ -52,6 +54,26 @@ function requireEnv(...names: string[]): string[] | undefined {
   const values = names.map((n) => process.env[n]);
   if (values.some((v) => !v)) return undefined;
   return values as string[];
+}
+
+function operatorClient(accountId: string, accountKey: string): Client {
+  return Client.forTestnet().setOperator(
+    AccountId.fromString(accountId),
+    PrivateKey.fromStringECDSA(accountKey)
+  );
+}
+
+async function pollForTopicMessage(topicId: string, expected: string, attempts = 10): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    const res = await fetch(`${MIRROR_NODE}/api/v1/topics/${topicId}/messages?order=desc&limit=10`);
+    if (res.ok) {
+      const { messages } = (await res.json()) as { messages: { message: string }[] };
+      const match = messages?.some((m) => Buffer.from(m.message, "base64").toString("utf8") === expected);
+      if (match) return true;
+    }
+    await sleep(2000);
+  }
+  return false;
 }
 
 // ---------- canonicalization + hash ----------
@@ -106,10 +128,7 @@ async function runTransferChecks() {
   report(`fetched balance for ${accountAId} (${balanceA} ℏ)`, Number.isFinite(balanceA));
   report(`fetched balance for ${accountBId} (${balanceB} ℏ)`, Number.isFinite(balanceB));
 
-  const client = Client.forTestnet().setOperator(
-    AccountId.fromString(accountAId),
-    PrivateKey.fromStringECDSA(accountAKey)
-  );
+  const client = operatorClient(accountAId, accountAKey);
 
   const amount = 1;
   const tx = await new TransferTransaction()
@@ -125,10 +144,51 @@ async function runTransferChecks() {
   client.close();
 }
 
+// ---------- HCS round trip ----------
+
+async function runHcsRoundTripChecks() {
+  section("HCS round trip");
+
+  const env = requireEnv("ACCOUNT_A_ID", "ACCOUNT_A_KEY");
+  if (!env) {
+    skip("HCS round trip", "set ACCOUNT_A_ID, ACCOUNT_A_KEY in .env");
+    return;
+  }
+  const [accountAId, accountAKey] = env;
+  const client = operatorClient(accountAId, accountAKey);
+
+  let topicId = process.env.NOWCAST_TOPIC_ID;
+  if (topicId) {
+    console.log(`reusing topic ${topicId} (NOWCAST_TOPIC_ID)`);
+  } else {
+    const createTx = await new TopicCreateTransaction()
+      .setTopicMemo("nowcast smoke test")
+      .execute(client);
+    const createReceipt = await createTx.getReceipt(client);
+    topicId = createReceipt.topicId!.toString();
+    report(`created topic ${topicId}`, createReceipt.status === Status.Success);
+    console.log(`set NOWCAST_TOPIC_ID=${topicId} in .env to reuse this topic next run`);
+  }
+
+  const message = `nowcast-smoke-${Date.now()}`;
+  const submitTx = await new TopicMessageSubmitTransaction()
+    .setTopicId(topicId)
+    .setMessage(message)
+    .execute(client);
+  const submitReceipt = await submitTx.getReceipt(client);
+  report("message submitted to topic", submitReceipt.status === Status.Success);
+
+  const found = await pollForTopicMessage(topicId, message);
+  report("message round-tripped through mirror node", found);
+
+  client.close();
+}
+
 // ---------- main ----------
 
 runCanonicalizationChecks();
 await runTransferChecks();
+await runHcsRoundTripChecks();
 
 console.log(`\n${failures === 0 ? "all checks passed" : `${failures} check(s) failed`}`);
 process.exit(failures === 0 ? 0 : 1);
