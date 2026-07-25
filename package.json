@@ -1,0 +1,12 @@
+{
+  "name": "nowcast",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.19.2"
+  }
+}
