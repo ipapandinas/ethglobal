@@ -1,39 +1,56 @@
 /**
- * x402 paywall for GET /reveal (specs §6, Phase 2). Unpaid → 402 with `accepts`,
- * which IS the price quote. Payment is x402 `exact` on hedera:testnet.
+ * x402 paywall for GET /reveal (specs §6, Phase 2). Mirrors the reference
+ * express example (github/.../x402-hedera/.../servers/express): a middleware
+ * guards a priced route — unpaid → 402 with `accepts` (which IS the quote),
+ * paid → next(). Kept self-contained: instead of a separate facilitator, the
+ * buyer's payment is a signed USDC TransferTransaction we settle on-chain here.
  *
- * ── API DEV SEAM ── The whole payment boundary lives here; nothing else imports
- * @x402/*. Wire `verifyPayment` against the x402 Hedera facilitator (see
- * github/tutorial-a2a-x402-trustless-agent/x402-hedera). Until then every reveal
- * 402s, which is the correct fail-closed default.
+ * Wire format (must match apps/cli/x402.ts):
+ *   402 body : { accepts: [{ scheme:"exact", network:"hedera:testnet",
+ *                            maxAmountRequired:<USD cents>, resource, payTo }] }
+ *   X-PAYMENT: base64({ x402Version:1, scheme, network,
+ *                       payload:{ transaction:<base64 signed TransferTransaction> } })
  */
+import { Status, Transaction } from "@hashgraph/sdk";
 import type { NextFunction, Request, Response } from "express";
-import { DEFAULT_PRICE, toCents } from "../../shared/index.js";
-import { config, isSelfBroker } from "./config.js";
+import { toCents } from "../../shared/index.js";
+import { config } from "./config.js";
+import * as db from "./db.js";
+import { client } from "./hedera.js";
 
-/**
- * The 402 quote. One recipient: broker in marketplace mode, seller in self-broker.
- * TODO(api): quote the SIGNAL's committed price (read it from the store by seq),
- * not a broker-wide default — the seller sets price per signal at publish time.
- */
-const accepts = (resource: string, seller: string, price = DEFAULT_PRICE) => [
+const network = `hedera:${config.network}`;
+
+/** The 402 quote for a signal priced at `cents`. One recipient: the broker. */
+const accepts = (resource: string, cents: number) => [
   {
     scheme: "exact",
-    network: `hedera:${config.network}`,
-    maxAmountRequired: String(toCents(price)), // TODO: atomic units after spike S1
+    network,
+    maxAmountRequired: String(cents), // USD cents; the buyer settles USDC atomic units
     resource,
-    payTo: isSelfBroker ? seller : config.brokerAccount,
+    payTo: config.brokerAccount, // self-broker: seller == broker; forwarding is a later task
   },
 ];
 
-// TODO(api): verify the x402 payment header via the facilitator; true only when settled.
-async function verifyPayment(_req: Request): Promise<boolean> {
-  return false;
+/** Submit the buyer's signed transfer and confirm consensus. Any error ⇒ unpaid. */
+async function settle(header: string): Promise<boolean> {
+  try {
+    const env = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+    if (env?.scheme !== "exact" || env?.network !== network) return false;
+    const tx = Transaction.fromBytes(Buffer.from(env.payload.transaction, "base64"));
+    const receipt = await (await tx.execute(client)).getReceipt(client);
+    // TODO(api): also assert the transfer amount/recipient match the quote.
+    return receipt.status === Status.Success;
+  } catch {
+    return false;
+  }
 }
 
-export function requirePayment(req: Request, res: Response, next: NextFunction) {
-  const seller = (res.locals.seller as string) ?? config.brokerAccount;
-  verifyPayment(req).then((paid) =>
-    paid ? next() : res.status(402).json({ accepts: accepts(req.originalUrl, seller) }),
-  );
+export async function requirePayment(req: Request, res: Response, next: NextFunction) {
+  const meta = await db.get(Number(req.query.seq));
+  if (!meta) return next(); // unknown seq — let the handler 404
+  const quote = accepts(req.originalUrl, toCents(meta.price));
+
+  const header = req.get("x-payment");
+  if (header && (await settle(header))) return next();
+  res.status(402).json({ accepts: quote });
 }
