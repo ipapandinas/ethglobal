@@ -3,13 +3,14 @@
  * read from Mirror Node (seq is the id, payer_account_id is the attested seller).
  */
 import "dotenv/config";
-import { MIRROR_NODE, NETWORK, Signal, TOPIC_ID } from "../../shared/index.js";
+import { API_PORT, Exit, KeyResponse, MIRROR_NODE, NETWORK, PublishResponse, Signal, TOPIC_ID } from "../../shared/index.js";
 import { CliError } from "./errors.js";
 import { payAndRetry } from "./x402.js";
 
-const API = process.env.NOWCAST_API_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
-const MIRROR = MIRROR_NODE[process.env.HEDERA_NETWORK ?? NETWORK];
-const TOPIC = TOPIC_ID;
+const API = process.env.NOWCAST_API_URL ?? `http://localhost:${process.env.PORT ?? API_PORT}`;
+const MIRROR =
+  process.env.MIRROR_NODE_URL ?? MIRROR_NODE[process.env.HEDERA_NETWORK ?? NETWORK] ?? MIRROR_NODE[NETWORK];
+const TOPIC = process.env.NOWCAST_TOPIC_ID ?? TOPIC_ID;
 
 export type SignalRecord = Signal & { seq: number; consensusAt: string; payer: string };
 
@@ -48,7 +49,7 @@ export async function publish(body: { payload: string; seller: string; price: st
 export async function fetchSignal(seq: number, attempts = 1): Promise<SignalRecord | undefined> {
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, 2000));
-    const res = await fetch(`${MIRROR}/api/v1/topics/${topic()}/messages/${seq}`);
+    const res = await fetch(`${MIRROR}/api/v1/topics/${TOPIC}/messages/${seq}`);
     if (res.ok) {
       try {
         return decode(await res.json());
@@ -63,7 +64,7 @@ export async function fetchSignal(seq: number, attempts = 1): Promise<SignalReco
 
 /** List recent signals from Mirror Node (specs §7 `list`). Skips foreign messages. */
 export async function listSignals(limit = 20): Promise<SignalRecord[]> {
-  const res = await fetch(`${MIRROR}/api/v1/topics/${topic()}/messages?order=desc&limit=${limit}`);
+  const res = await fetch(`${MIRROR}/api/v1/topics/${TOPIC}/messages?order=desc&limit=${limit}`);
   if (!res.ok) throw new CliError(Exit.api, "API_ERROR", `mirror node returned ${res.status}`);
   const { messages } = (await res.json()) as { messages?: any[] };
   const signals: SignalRecord[] = [];
