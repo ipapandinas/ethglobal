@@ -5,14 +5,10 @@
  * ── API DEV ── This is where the seal → publish path lives. The seq comes off
  * the submit receipt so the key is vaulted under the right id immediately.
  */
-import { AccountId, Client, PrivateKey, TopicMessageSubmitTransaction } from "@hashgraph/sdk";
+import { TopicMessageSubmitTransaction } from "@hashgraph/sdk";
 import { Signal, encrypt } from "../../shared/index.js";
 import { config } from "./config.js";
-
-const client = Client.forTestnet().setOperator(
-  AccountId.fromString(config.brokerAccount),
-  PrivateKey.fromStringECDSA(config.brokerKey),
-);
+import { client } from "./hedera.js";
 
 export async function publishSignal(input: { payload: string; seller: string; price: string }) {
   const sealed = encrypt(input.payload);

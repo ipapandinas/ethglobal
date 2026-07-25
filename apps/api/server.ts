@@ -18,14 +18,14 @@ app.post("/signals", async (req, res) => {
   }
   const input = PublishRequest.parse(req.body);
   const { seq, key } = await publishSignal(input);
-  await db.put(seq, key);
+  await db.put(seq, key, input.price);
   res.status(201).json({ seq, key: key.key });
 });
 
 app.get("/reveal", requirePayment, async (req, res) => {
-  const key = await db.get(Number(req.query.seq));
-  if (!key) return res.status(404).json(err("NOT_FOUND", `no signal at seq ${req.query.seq}`));
-  res.json(key);
+  const row = await db.get(Number(req.query.seq));
+  if (!row) return res.status(404).json(err("NOT_FOUND", `no signal at seq ${req.query.seq}`));
+  res.json({ key: row.key, iv: row.iv });
 });
 
 await db.init();
