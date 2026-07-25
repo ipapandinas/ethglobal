@@ -61,20 +61,17 @@ Strict TS, `module: NodeNext`, `tsx` in dev, `tsc --noEmit` in CI.
 
 ## 5. HCS message
 
-Under 1000 bytes — payload cap ~400 chars.
+Under 1000 bytes — payload cap ~400 chars. `alg` is fixed (`AES-256-GCM`, the only
+value in the enum) and omitted from the wire for the MVP; clients still fail closed
+on any unrecognised alg if the enum grows.
 
 ```jsonc
 {
-  "v": 1,
-  "kind": "signal",
-  "alg": "AES-256-GCM",
   "ciphertext": "base64",
   "iv": "base64",
-  "price": "$0.50",
+  "price": "$0.50",        // set by the seller at publish time
   "seller": "0.0.5555",
-  "broker": { "account": "0.0.1234", "url": "https://broker.example" },
-  "observedAt": "2026-07-25T18:42:00.000Z",
-  "expiresAt":  "2026-07-25T19:12:00.000Z"
+  "broker_url": "https://broker.example"
 }
 ```
 
@@ -84,9 +81,10 @@ Under 1000 bytes — payload cap ~400 chars.
 
 | Route | Paid | In → out |
 |---|---|---|
-| `GET /health` | no | → `{ topicId, brokerAccount, network, feeBps, price, alg }` |
-| `POST /signals` | no | `{ payload, sellerAccount, ttlSec? }` → `{ seq, alg, key, iv, expiresAt }` |
-| `GET /reveal?seq=N` | **yes** | → `{ alg, key, iv }` |
+| `POST /signals` | no | `{ payload, seller, price }` → `{ seq, key }` |
+| `GET /reveal?seq=N` | **yes** | → `{ key, iv }` |
+
+(`GET /health` is deferred — not needed for the MVP demo.)
 
 No price endpoint — an unpaid `GET /reveal` returns 402 with `accepts`, and that is the quote.
 
@@ -99,15 +97,14 @@ No price endpoint — an unpaid `GET /reveal` returns 402 with `accepts`, and th
 Verification lives here, and both actors run the same code path.
 
 ```
-cli health
-cli publish --payload <s> [--ttl 1800] [--idempotency-key <s>]
-cli list    [--since <iso>] [--broker <acct>] [--limit 20]
+cli publish --payload <s> --price <usd>
+cli list    [--limit 20]
 cli buy     --seq <n> [--max-price <usd>]
-cli verify  --seq <n> --key <b64> --iv <b64>
+cli verify  --seq <n> --key <b64>
 cli describe
 ```
 
-`verify` fetches the message at `seq`, decrypts with the supplied key, and prints the payload with a verdict. `publish` and `buy` both call it automatically before returning — the seller confirms the broker published what it submitted, the buyer confirms it bought what was sealed. Standalone `verify` re-checks any signal later.
+`verify` fetches the message at `seq`, decrypts with the supplied key (the `iv` is public on-chain, so only the key is needed), and prints the payload with a verdict. `publish` and `buy` both call it automatically before returning — the seller confirms the broker published what it submitted, the buyer confirms it bought what was sealed. Standalone `verify` re-checks any signal later.
 
 Agent contract, all non-negotiable:
 
@@ -127,7 +124,7 @@ Each phase ends with a command that prints PASS or doesn't. Don't start one unti
 
 **Phase 0 — spikes (90 min).** S1: does `hedera:testnet` settle HBAR or a token? S2: can the x402 Hedera payload express a multi-party transfer? S3: does a >1 KB HCS message chunk and reassemble? S4: which SDK does `@x402/hedera` peer on? Record answers here. Only S2 can change the architecture.
 
-**Phase 1 — publish + seller verify (3 h).** Schemas, crypto, `POST /signals`, HCS submit. *Done:* `cli publish --payload "lot is full"` returns a key and prints `verified: true`; two identical payloads produce different ciphertexts.
+**Phase 1 — publish + seller verify (3 h).** Schemas, crypto, `POST /signals`, HCS submit. *Done:* `cli publish --payload "lot is full" --price 0.50` returns a key and prints `verified: true`; two identical payloads produce different ciphertexts.
 
 **Phase 2 — paywall (2 h).** x402 on `GET /reveal`. *Done:* unpaid → 402 with `accepts`; paid → 200 with the key.
 
@@ -147,7 +144,6 @@ Each phase ends with a command that prints PASS or doesn't. Don't start one unti
 - [ ] `zodToJsonSchema` export for the CLI manifest
 
 **apps/api**
-- [ ] `GET /health`
 - [ ] `POST /signals` — encrypt, submit, vault key by seq, return key
 - [ ] `GET /reveal` behind x402
 - [ ] `FEE_BPS` payout path
