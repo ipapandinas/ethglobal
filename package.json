@@ -5,6 +5,10 @@
   "scripts": {
     "smoke": "tsx scripts/smoke.ts"
   },
+  "dependencies": {
+    "@hashgraph/sdk": "^2.81.0",
+    "dotenv": "^17.4.2"
+  },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "tsx": "^4.19.2"

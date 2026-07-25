@@ -4,9 +4,9 @@ seller seals hash on HCS → buyer discovers → pays via x402/HBAR → seller r
 
 ## Smoke Tests
 
-- [ ] Dumb HBAR transfer succeeds
+- [X] Dumb HBAR transfer succeeds
 - [ ] HCS: create topic → submit message → read it back
-- [ ] Canonical JSON hash
+- [X] Canonical JSON hash
 - [ ] x402 → pay
 
 ## Decisions
